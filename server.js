@@ -12,7 +12,7 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 
 /* ── OAuth2 ── */
-const REDIRECT_URI = `http://localhost:${PORT}/auth/callback`;
+const REDIRECT_URI = process.env.REDIRECT_URI || `http://localhost:${PORT}/auth/callback`;
 
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
