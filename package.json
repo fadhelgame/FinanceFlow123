@@ -1,0 +1,12 @@
+{
+  "name": "financeflow",
+  "version": "1.0.0",
+  "description": "Aplikasi Pelacak Keuangan Pribadi",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
