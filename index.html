@@ -11,6 +11,32 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
+
+<!-- ── Login Overlay ── -->
+<div class="login-overlay" id="loginOverlay" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon" style="width:48px;height:48px">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+    <h1 class="login-title">FinanceFlow</h1>
+    <p class="login-desc">Catat, analisis, dan kelola keuangan pribadi.<br>Data aman tersimpan di Google Drive kamu.</p>
+    <a href="/auth/google" class="btn-google-signin" id="googleSigninBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" style="flex-shrink:0">
+        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+      </svg>
+      Masuk dengan Google
+    </a>
+    <p class="login-note" id="loginNote"></p>
+  </div>
+</div>
+
 <div class="app">
 
   <!-- Sidebar -->
@@ -77,10 +103,22 @@
     </div>
 
     <div class="sidebar-footer">
-      <div class="user-avatar">FF</div>
+      <img class="user-avatar-photo" id="userPhoto" src="" alt="" style="display:none">
+      <div class="user-avatar" id="userAvatarFallback">FF</div>
       <div class="user-info">
-        <div class="user-name">Pengguna</div>
-        <div class="user-status"><span class="status-dot"></span>Aktif</div>
+        <div class="user-name" id="userName">Pengguna</div>
+        <div class="user-email" id="userEmail">Aktif</div>
+      </div>
+      <div class="sidebar-footer-btns">
+        <button class="sidebar-icon-btn" id="driveBackupBtn" title="Backup ke Google Drive">
+          <svg viewBox="0 0 24 24" fill="none" width="13" height="13"><path d="M12 15V3m0 12l-4-4m4 4l4-4M2 17l.621 2.485A2 2 0 004.561 21h14.878a2 2 0 001.94-1.515L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="sidebar-icon-btn" id="driveRestoreBtn" title="Restore dari Google Drive">
+          <svg viewBox="0 0 24 24" fill="none" width="13" height="13"><path d="M12 9v12m0-12l-4 4m4-4l4 4M2 7l.621-2.485A2 2 0 014.561 3h14.878a2 2 0 011.94 1.515L22 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="sidebar-icon-btn sidebar-icon-btn--danger" id="logoutBtn" title="Keluar">
+          <svg viewBox="0 0 24 24" fill="none" width="13" height="13"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
       </div>
     </div>
   </aside>
@@ -890,11 +928,11 @@
         <span class="voice-chip" data-text="Belanja 200 ribu">🛍 belanja 200rb</span>
       </div>
       <div class="voice-or-divider">
-        <span></span><small>atau gunakan mikrofon (butuh internet)</small><span></span>
+        <span></span><small>atau rekam suara (Whisper AI)</small><span></span>
       </div>
       <button class="btn-outline voice-start-btn" id="voiceStartBtn">
         <svg viewBox="0 0 24 24" fill="none" width="15" height="15"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" stroke="currentColor" stroke-width="1.8"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        Gunakan Mikrofon
+        Rekam Suara
       </button>
     </div>
 

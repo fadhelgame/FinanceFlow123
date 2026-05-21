@@ -1014,199 +1014,398 @@ async function doDeposit() {
 }
 
 /* ===== VOICE INPUT ===== */
-let voiceRecognition = null;
-let voiceParsedData  = null;
-let voiceProcessed   = false;
-let voiceHadError    = false;
+/* ── Voice state ── */
+let mediaRecorder  = null;
+let audioChunks    = [];
+let voiceParsedData = null;
+let voiceProcessed  = false;
+let voiceHadError   = false;
 
-/* ── NLP Parser ── */
-function parseVoiceText(raw) {
-  const text = raw.toLowerCase().trim();
-  if (!text) return null;
+/* ═══════════════════════════════════════════════════
+   NLP ENGINE v2 — Smart transaction parser
+   Supports: amounts, categories, dates, types (ID)
+═══════════════════════════════════════════════════ */
 
-  // 1. Parse amount
-  const amount = extractAmount(text);
-  if (!amount) return null;
+/* ── Category keyword map (ordered by specificity) ── */
+const NLP_CATS = [
+  /* === TRANSPORT (before shopping to avoid 'beli bensin' → shopping) === */
+  { cat:'transport', keys:[
+    'krl','mrt','lrt','transjakarta','busway','commuter','jaklingko','jak lingko',
+    'damri','teman bus','bus trans','bus kota',
+    'ojek','ojol','gojek','gocar','grab','grab car','grab motor','maxim','indriver','indrive',
+    'bensin','bbm','pertamax','pertalite','premium','solar','spbu','pom bensin','isi bensin',
+    'isi bbm','beli bensin','beli bbm',
+    'tol','jalan tol','bayar tol','parkir','parkiran','bayar parkir',
+    'kereta','stasiun','tiket kereta','tiket krl','tiket mrt',
+    'angkot','angkutan','bajaj','becak','bemo',
+    'taksi','taxi','bluebird','blue bird',
+    'transportasi','transport','naik',
+    'servis motor','servis mobil','bengkel','tambal ban','cuci motor','cuci mobil','ganti oli',
+    'stnk','sim','samsat',
+    'pesawat','tiket pesawat','airport','bandara','terminal',
+    'kapal','ferry','pelabuhan',
+    'e-money','emoney','flazz','brizzi','tapcash',
+  ]},
 
-  // 2. Detect type
-  const expenseWords = /\b(beli|bayar|ngeluarin|keluar|jajan|belanja|sewa|tagihan|biaya|bayarin|transfer|ngirim|kirim|makan|minum|ngopi|beliin|keluarin)\b/;
-  const incomeWords  = /\b(gaji|gajian|dapat|terima|masuk|bonus|freelance|proyek|jual|cair|thr|dapet|nerima|nyicil|dikasih|diberi)\b/;
+  /* === FOOD & BEVERAGE === */
+  { cat:'food', keys:[
+    'makan','minum','ngopi','jajan','sarapan','makan siang','makan malam','makan pagi',
+    'resto','restoran','warung','warteg','café','kafe','rumah makan',
+    'kopi','coffee','espresso','americano','latte','cappuccino','matcha','teh',
+    'snack','cemilan','kue','roti','bakery',
+    'chagee','starbucks','kopi kenangan','kopi janji jiwa','fore coffee','excelso',
+    'mcd','mcdonalds','kfc','burger king','pizzahut','pizza','dominos',
+    'nasi','mie','sate','bakso','soto','rendang','gorengan','siomay','batagor',
+    'cireng','cilok','gado','ketoprak','lotek',
+    'es','boba','milkshake','jus','minuman','smoothie',
+    'ayam','bebek','ikan','udang','seafood','cumi','kepiting',
+    'steak','burger','sandwich','kebab',
+    'indomie','mi instan',
+    'dunkin','chatime','gong cha','kokumi','haus','es teh','es jeruk',
+    'aqua','air mineral',
+    'warteg','padang','sunda','chinese food','thai food','korean food',
+    'sushi','ramen','pho','dimsum','dim sum','martabak',
+    'breakfast','lunch','dinner','brunch',
+    'groceries','bahan makanan','belanja makan','belanja dapur',
+    'indomaret','alfamart','alfamidi',  // small convenience → likely food
+  ]},
 
-  const isIncome = incomeWords.test(text) && !text.includes('bayar') && !text.includes('beli');
-  const type     = isIncome ? 'income' : 'expense';
+  /* === UTILITIES === */
+  { cat:'utilities', keys:[
+    'listrik','token listrik','bayar listrik','pln','tagihan listrik',
+    'air','pdam','tagihan air','iuran air',
+    'pulsa','isi pulsa','beli pulsa','paket data','paket internet','kuota','data',
+    'internet','wifi','indihome','biznet','firstmedia','myrepublic','xlhome','iconnet',
+    'telkomsel','xl','axis','smartfren','tri','by.u','isat','im3','simpati','loop',
+    'top up','topup','reload',
+    'gas','isi gas','beli gas','gas lpg','gas melon',
+    'tagihan','bayar tagihan',
+  ]},
 
-  // 3. Detect category
-  const categoryMap = [
-    { keys: ['makan','minum','ngopi','jajan','sarapan','siang','malam','resto','warung',
-             'kopi','snack','cemilan','kue','roti','chagee','starbucks','mcd','kfc','pizza',
-             'nasi','mie','sate','bakso','soto','rendang','gorengan','es','teh','matcha','latte',
-             'coffee','burger','ayam','bebek','steak','salad','boba','milk','shake','jus'],
-      cat: 'food' },
-    { keys: ['bensin','ojek','gojek','grab','transport','angkot','bus','kereta','tol',
-             'parkir','taxi','taksi','maxim','inDrive','indrive','bajaj','ojol'],
-      cat: 'transport' },
-    { keys: ['beli','belanja','shopee','tokopedia','lazada','baju','sepatu','tas','barang',
-             'online','marketplace','toped','shopi','blibli','bukalapak'],
-      cat: 'shopping' },
-    { keys: ['listrik','air','pulsa','internet','wifi','tagihan','pln','pdam','gas','elang'],
-      cat: 'utilities' },
-    { keys: ['bioskop','nonton','game','steam','playstation','konser','liburan','jalan',
-             'spotify','netflix','youtube','disney','hbo','vidio','viu','iqiyi'],
-      cat: 'entertainment' },
-    { keys: ['obat','dokter','klinik','apotek','rumah sakit','bpjs','asuransi','periksa'],
-      cat: 'health' },
-    { keys: ['sewa','kos','kontrak','apartemen','rumah','kpr','cicil rumah'],
-      cat: 'housing' },
-    { keys: ['langganan','subscribe','subscription','member','premium'],
-      cat: 'subscriptions' },
-    { keys: ['buku','kursus','kuliah','sekolah','les','pelatihan','udemy','coursera'],
-      cat: 'education' },
-    { keys: ['gaji','gajian','salary'],
-      cat: 'salary' },
-    { keys: ['freelance','proyek','sidejob','project','client'],
-      cat: 'freelance' },
-    { keys: ['bonus','thr','insentif','komisi','reward'],
-      cat: 'bonus' },
-    { keys: ['travel','tiket','pesawat','hotel','penginapan','villa','airbnb'],
-      cat: 'travel' },
-  ];
+  /* === HEALTH === */
+  { cat:'health', keys:[
+    'obat','beli obat','apotek','apotik','kimia farma','century','guardian',
+    'dokter','klinik','puskesmas','rumah sakit','rs','rsu','rsia','rscm',
+    'bpjs','iuran bpjs','bayar bpjs',
+    'asuransi kesehatan',
+    'periksa','cek kesehatan','medical check','mcu','lab','laboratorium',
+    'rontgen','usg','ct scan','mri','vaksin','imunisasi',
+    'vitamin','suplemen','multivitamin','minyak kayu putih',
+    'promag','panadol','antangin','tolak angin','pocari','oralit',
+    'masker','alkohol','plester','betadine','antiseptik',
+    'antigen','pcr','rapid test','swab',
+    'dokter gigi','klinik gigi','cabut gigi','tambal gigi','behel','scaling',
+    'dokter mata','lensa kontak',
+    'spa','pijat','massage','refleksi','fisioterapi',
+    'psikolog','psikiater','terapi',
+  ]},
 
-  let category = 'other';
-  for (const {keys, cat} of categoryMap) {
-    if (keys.some(k => text.includes(k))) { category = cat; break; }
+  /* === HOUSING === */
+  { cat:'housing', keys:[
+    'sewa','bayar sewa','sewa rumah',
+    'kos','kosan','bayar kos','sewa kos','kontrakan','kontrak',
+    'apartemen','apartement','sewa apart','bayar apart',
+    'kpr','cicilan kpr','cicil rumah','angsuran rumah','dp rumah','uang muka',
+    'ipl','maintenance','service charge','biaya pengelolaan',
+    'iuran rt','iuran rw','iuran lingkungan','biaya keamanan','satpam',
+    'renovasi','cat rumah','perbaikan rumah','tukang','material bangunan',
+    'parkir bulanan','parkir apartment',
+  ]},
+
+  /* === ENTERTAINMENT === */
+  { cat:'entertainment', keys:[
+    'bioskop','cinema','cgv','cinepolis','imax','xxi','21','nonton film',
+    'netflix','spotify','youtube premium','disney','disney plus','hbo','hbo max',
+    'vidio','viu','iqiyi','wetv','mola','prime video','apple tv',
+    'game','steam','playstation','xbox','nintendo','mobile legend','ml','ff','free fire',
+    'konser','event','festival','tiket konser','tiket event',
+    'karaoke','bowling','billiard','futsal',
+    'gym','fitness','crossfit','muay thai','yoga','pilates',
+    'badminton','renang','golf','tennis','basket','bola',
+    'paintball','escape room','lasertag','arcade','timezone','funworld',
+    'taman hiburan','wahana','dufan','taman bermain',
+    'tiket wisata','wisata','rekreasi','piknik','liburan dalam kota',
+    'nongkrong','hangout','main',
+  ]},
+
+  /* === SHOPPING === */
+  { cat:'shopping', keys:[
+    'shopee','tokopedia','lazada','blibli','bukalapak','jd.id','tiktok shop',
+    'zalora','sociolla','beauty','kosmetik','skincare','makeup','parfum',
+    'baju','kaos','celana','kemeja','dress','jaket','sweater','hoodie','blouse',
+    'sepatu','sandal','sneakers','boots',
+    'tas','dompet','ransel','koper',
+    'jam tangan','kacamata','aksesoris','perhiasan','cincin','kalung','gelang',
+    'elektronik','gadget','hp','handphone','laptop','tablet','earphone','headset',
+    'charger','kabel','powerbank','mouse','keyboard',
+    'furnitur','perabot','dekorasi','lampu','karpet',
+    'mainan','action figure',
+    'hadiah','kado','souvenir','oleh-oleh',
+    'belanja online','belanja',
+    'hypermart','carrefour','transmart','hero','giant','superindo','lottemart',
+    'shoprite',
+  ]},
+
+  /* === SUBSCRIPTIONS === */
+  { cat:'subscriptions', keys:[
+    'langganan','subscribe','subscription','berlangganan',
+    'member','premium','pro','plus',
+    'icloud','google one','dropbox','onedrive',
+    'notion','figma','canva','adobe','creative cloud',
+    'microsoft','office 365','microsoft 365',
+    'antivirus','vpn','nordvpn','surfshark',
+    'domain','hosting','vps','cloud','server','aws','gcp','azure',
+    'annual fee','biaya tahunan','biaya bulanan','tagihan bulanan',
+  ]},
+
+  /* === EDUCATION === */
+  { cat:'education', keys:[
+    'buku','beli buku','buku pelajaran','novel','komik',
+    'kursus','les','bimbel','bimbingan belajar','privat',
+    'kuliah','spp','ukt','biaya kuliah','uang semester','biaya sekolah',
+    'seragam','tas sekolah','alat sekolah','alat tulis',
+    'pelatihan','training','seminar','workshop','bootcamp','webinar',
+    'udemy','coursera','dicoding','buildwithangga','ruangguru','zenius','quipper',
+    'british council','ef english',
+    'wisuda','toga',
+  ]},
+
+  /* === TRAVEL === */
+  { cat:'travel', keys:[
+    'liburan','traveling','trip','perjalanan','wisata ke','tour',
+    'tiket pesawat','hotel','penginapan','villa','resort',
+    'airbnb','booking.com','traveloka','tiket.com','pegipegi','agoda',
+    'visa','paspor','biaya visa',
+    'backpacker','itinerary',
+  ]},
+
+  /* === SALARY / INCOME === */
+  { cat:'salary', keys:[
+    'gaji','gajian','salary','upah','honor','honorarium',
+    'slip gaji','transfer gaji','terima gaji',
+  ]},
+  { cat:'freelance', keys:[
+    'freelance','frilan','proyek','project','klien','client',
+    'invoice','bayaran proyek','design fee','coding fee','writing fee',
+    'jasa','fee proyek','komisi penjualan','royalti',
+  ]},
+  { cat:'investment', keys:[
+    'investasi','saham','reksa dana','reksadana','obligasi','deposito',
+    'emas','logam mulia','kripto','crypto','bitcoin','ethereum',
+    'dividen','bunga deposito','bagi hasil','return investasi','cuan saham',
+  ]},
+  { cat:'bonus', keys:[
+    'thr','bonus','insentif','incentive','reward','cashback','cash back',
+    'refund','uang kembali','dana kembali','klaim',
+  ]},
+];
+
+/* Build a flat lookup for speed */
+const NLP_LOOKUP = new Map();
+NLP_CATS.forEach(({ cat, keys }) => {
+  keys.forEach(k => { if (!NLP_LOOKUP.has(k)) NLP_LOOKUP.set(k, cat); });
+});
+
+/* ── Type detection ── */
+const RE_INCOME  = /\b(gaji|gajian|terima gaji|dapat gaji|cair gaji|transfer masuk|dapat|terima|masuk|bonus|thr|freelance|proyek selesai|jual|cair|dapet|nerima|dikasih|diberi|kiriman|dividen|cashback|refund|investasi cair|untung|cuan|keuntungan)\b/;
+const RE_EXPENSE = /\b(beli|bayar|bayarin|ngeluarin|keluar|jajan|belanja|sewa|tagihan|biaya|transfer|kirim uang|ngirim|isi|top.?up|topup|langganan|cicil|kredit|angsuran|dp|parkir|ongkir|charge|iuran|donasi|infaq|sedekah|zakat|servis|tambal|cuci|ganti)\b/;
+
+/* Number words (Bahasa Indonesia) */
+const NUM_WORDS = {
+  nol:0, satu:1, dua:2, tiga:3, empat:4, lima:5,
+  enam:6, tujuh:7, delapan:8, sembilan:9, sepuluh:10,
+  sebelas:11, dua belas:12, tiga belas:13, empat belas:14, lima belas:15,
+  enam belas:16, tujuh belas:17, delapan belas:18, sembilan belas:19,
+  dua puluh:20, tiga puluh:30, empat puluh:40, lima puluh:50,
+  enam puluh:60, tujuh puluh:70, delapan puluh:80, sembilan puluh:90,
+  seratus:100, dua ratus:200, tiga ratus:300, empat ratus:400, lima ratus:500,
+  enam ratus:600, tujuh ratus:700, delapan ratus:800, sembilan ratus:900,
+  seribu:1000,
+};
+
+function wordsToNumber(text) {
+  // Try multi-word patterns first
+  for (const [word, val] of Object.entries(NUM_WORDS).sort((a,b) => b[0].length - a[0].length)) {
+    if (text.includes(word)) {
+      const rest = text.replace(word, '').trim();
+      if (!rest) return val;
+      // e.g. "dua puluh lima" → 20 + 5 = 25
+      const more = wordsToNumber(rest);
+      if (more !== null && more < val) return val + more;
+    }
   }
-
-  // 4. Extract description (remove amount words and date words from the original)
-  const desc = cleanDescription(text, amount);
-
-  // 5. Detect date
-  const date = extractDate(text);
-
-  return {
-    type, amount, category, description: desc, date,
-    raw: raw,
-  };
+  return null;
 }
 
+/* ── Amount extractor ── */
 function extractAmount(text) {
-  // "1.5 juta", "1,5 juta", "1 5 jt", "1.5jt"
-  let match = text.match(/(\d+[.,]?\d*)\s*(juta|jt|jtan|jutaan|juta an)\b/);
-  if (match) {
-    const num = parseFloat(match[1].replace(',', '.'));
-    if (num > 0) return Math.round(num * 1_000_000);
+  const t = text.toLowerCase();
+
+  // "setengah juta / setengah ribu"
+  if (/setengah\s*(juta|jt)/.test(t)) return 500_000;
+  if (/setengah\s*(ribu|rb)/.test(t))  return 500;
+
+  // "1.5 juta", "1,5jt", "1 5 jt" (space between), "1.5juta"
+  let m = t.match(/(\d+)[.,\s](\d+)\s*(juta|jt|jutaan)\b/);
+  if (m) return Math.round(parseFloat(`${m[1]}.${m[2]}`) * 1_000_000);
+
+  m = t.match(/(\d+[.,]?\d*)\s*(juta|jt|jutaan)\b/);
+  if (m) { const n = parseFloat(m[1].replace(',','.')); if (n>0) return Math.round(n*1_000_000); }
+
+  // miliar
+  m = t.match(/(\d+[.,]?\d*)\s*(miliar|milyar)\b/);
+  if (m) { const n = parseFloat(m[1].replace(',','.')); if (n>0) return Math.round(n*1_000_000_000); }
+
+  // "1.5 ribu", "15rb", "15 ribu", "1,5rb"
+  m = t.match(/(\d+)[.,\s](\d+)\s*(ribu|rb|ribuan)\b/);
+  if (m) return Math.round(parseFloat(`${m[1]}.${m[2]}`) * 1_000);
+
+  m = t.match(/(\d+[.,]?\d*)\s*(ribu|rb|ribuan|k)\b/);
+  if (m) { const n = parseFloat(m[1].replace(',','.')); if (n>0) return Math.round(n*1_000); }
+
+  // perak / plain rupiah
+  m = t.match(/(\d+)\s*(perak|rupiah)\b/);
+  if (m) return parseInt(m[1])||0;
+
+  // rp prefix: "rp 15.000", "rp15rb"
+  m = t.match(/rp\.?\s*([\d.,]+)\s*(juta|jt|ribu|rb|k)?/);
+  if (m) {
+    let n = parseFloat(m[1].replace(/[.,]/g,'') ); // strip separators
+    if (m[2]) {
+      if (/juta|jt/.test(m[2])) n *= 1_000_000;
+      else if (/ribu|rb|k/.test(m[2])) n *= 1_000;
+    }
+    if (n>=100) return Math.round(n);
   }
 
-  // "2 miliar", "2 m", "2M"
-  match = text.match(/(\d+[.,]?\d*)\s*(miliar|milyar|mil|M)\b/);
-  if (match) {
-    const num = parseFloat(match[1].replace(',', '.'));
-    if (num > 0) return Math.round(num * 1_000_000_000);
-  }
+  // Plain number: "15000", "15.000", "150.000"
+  m = t.match(/\b(\d{1,3}(?:[.,]\d{3})+)\b/);
+  if (m) { const n = parseInt(m[1].replace(/[.,]/g,'')); if (n>=500) return n; }
 
-  // "15 ribu", "15rb", "15 rb", "15.000"
-  match = text.match(/(\d+[.,]?\d*)\s*(ribu|rb|ribuan|rban)\b/);
-  if (match) {
-    const num = parseFloat(match[1].replace(',', '.'));
-    if (num > 0) return Math.round(num * 1_000);
-  }
+  m = t.match(/\b(\d{4,})\b/);
+  if (m) { const n = parseInt(m[1]); if (n>=500) return n; }
 
-  // "500 perak"
-  match = text.match(/(\d+)\s*(perak|rupiah|rp)\b/);
-  if (match) return parseInt(match[1]) || 0;
+  // Indonesian word numbers + unit
+  const wordAmt = tryWordAmount(t);
+  if (wordAmt) return wordAmt;
 
-  // Plain number: "15000", "15.000", "15,000"
-  match = text.match(/(?:rp\s*)?(\d{3,}(?:[.,]\d{3})*)/);
-  if (match) {
-    const n = parseInt(match[1].replace(/[.,]/g, ''));
-    if (n >= 100) return n;
-  }
-
-  // "lima belas ribu", "delapan juta" etc — skip for now, rare in voice
   return 0;
 }
 
+function tryWordAmount(text) {
+  // "lima ribu", "dua puluh ribu", "delapan juta", "satu setengah juta"
+  const UNITS = [
+    { re:/\b([\w\s]+)\s+(miliar|milyar)\b/, mul:1_000_000_000 },
+    { re:/\b([\w\s]+)\s+(juta|jt)\b/,      mul:1_000_000 },
+    { re:/\b([\w\s]+)\s+(ribu|rb|k)\b/,    mul:1_000 },
+    { re:/\b([\w\s]+)\s+(ratus)\b/,         mul:100 },
+  ];
+  for (const { re, mul } of UNITS) {
+    const m = text.match(re);
+    if (m) {
+      const wordPart = m[1].trim();
+      const val = wordsToNumber(wordPart);
+      if (val !== null && val > 0) return val * mul;
+    }
+  }
+  return 0;
+}
+
+/* ── Category detector ── */
+function detectCategory(text) {
+  const t = text.toLowerCase();
+
+  // Check multi-word keys first (longest match wins)
+  const sorted = [...NLP_LOOKUP.entries()].sort((a,b) => b[0].length - a[0].length);
+  for (const [key, cat] of sorted) {
+    if (t.includes(key)) return cat;
+  }
+  return 'other';
+}
+
+/* ── Type detector ── */
+function detectType(text) {
+  const t = text.toLowerCase();
+  const isIncome  = RE_INCOME.test(t);
+  const isExpense = RE_EXPENSE.test(t);
+  if (isIncome && !isExpense) return 'income';
+  if (isExpense) return 'expense';
+  // Category fallback
+  const cat = detectCategory(t);
+  if (['salary','freelance','investment','bonus'].includes(cat)) return 'income';
+  return 'expense';
+}
+
+/* ── Date extractor ── */
 function extractDate(text) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const t     = text.toLowerCase();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const off   = n => { const d=new Date(today); d.setDate(d.getDate()+n); return toIso(d); };
 
-  if (/hari ini|tadi pagi|tadi siang|tadi sore|tadi malam|baru saja|tadi\b/.test(text)) {
-    return toIso(today);
+  if (/hari ini|tadi|baru saja|barusan/.test(t)) return toIso(today);
+  if (/kemarin|kemaren/.test(t))                 return off(-1);
+  if (/besok/.test(t))                           return off(+1);
+  if (/lusa/.test(t))                            return off(+2);
+  if (/2 hari lalu|dua hari lalu/.test(t))       return off(-2);
+  if (/3 hari lalu|tiga hari lalu/.test(t))      return off(-3);
+  if (/minggu lalu|seminggu lalu/.test(t))       return off(-7);
+  if (/bulan lalu/.test(t)) {
+    const d=new Date(today); d.setMonth(d.getMonth()-1); return toIso(d);
   }
 
-  if (/kemarin|kemaren/.test(text)) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - 1);
-    return toIso(d);
-  }
-
-  if (/besok/.test(text)) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + 1);
-    return toIso(d);
-  }
-
-  if (/minggu lalu/.test(text)) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - 7);
-    return toIso(d);
-  }
-
-  if (/bulan lalu/.test(text)) {
-    const d = new Date(today);
-    d.setMonth(d.getMonth() - 1);
-    return toIso(d);
-  }
-
-  // "5 mei", "12 januari", "3 mar"
-  const months = ['januari','februari','maret','april','mei','juni','juli','agustus','september','oktober','november','desember',
-                  'jan','feb','mar','apr','mei','jun','jul','agu','ags','sep','okt','nov','des'];
-  const mRe = months.join('|');
-  const dateRe = new RegExp(`(\\d{1,2})\\s*(${mRe})`, 'i');
-  const m = text.match(dateRe);
+  const monthNames = 'januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember';
+  const monthShort = 'jan|feb|mar|apr|mei|jun|jul|agu|ags|sep|okt|nov|des';
+  const re = new RegExp(`(\\d{1,2})\\s*(${monthNames}|${monthShort})(?:\\s+(\\d{4}))?`, 'i');
+  const m  = t.match(re);
   if (m) {
     const day = parseInt(m[1]);
-    const monStr = m[2].toLowerCase();
-    let mon = -1;
-    for (let i = 0; i < months.length; i++) {
-      if (months[i] === monStr) { mon = i < 12 ? i : i % 12; break; }
-    }
-    if (mon >= 0 && day >= 1 && day <= 31) {
-      const year = today.getFullYear();
-      return toIso(new Date(year, mon, Math.min(day, 28)));
-    }
+    const mn  = m[2].toLowerCase();
+    const yr  = m[3] ? parseInt(m[3]) : today.getFullYear();
+    const ALL = (monthNames+'|'+monthShort).split('|');
+    const idx = ALL.findIndex(x => x === mn);
+    const mo  = idx >= 12 ? idx % 12 : idx;
+    if (mo >= 0 && day >= 1 && day <= 31)
+      return toIso(new Date(yr, mo, Math.min(day, 28)));
   }
-
   return toIso(today);
 }
 
-function cleanDescription(text, amount) {
-  let desc = text;
+/* ── Description cleaner ── */
+function cleanDescription(raw) {
+  let d = raw.toLowerCase();
+  // Strip amounts
+  d = d.replace(/rp\.?\s*[\d.,]+\s*(juta|jt|ribu|rb|k|miliar)?/gi, '');
+  d = d.replace(/\d+[.,]?\d*\s*(juta|jt|jutaan|miliar|milyar|ribu|rb|ribuan|k|perak|rupiah)\b/gi, '');
+  d = d.replace(/\b\d{4,}\b/g, '');
+  // Strip date words
+  d = d.replace(/\d{1,2}\s+(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|agu|ags|sep|okt|nov|des)/gi, '');
+  d = d.replace(/\b(hari ini|tadi pagi|tadi siang|tadi sore|tadi malam|kemarin|kemaren|besok|lusa|minggu lalu|bulan lalu|tadi|barusan|baru saja)\b/gi, '');
+  // Strip pure action words (only if standalone)
+  d = d.replace(/\b(bayar|bayarin|beli|beliin|ngeluarin|keluar|jajan|transfer|kirim uang|ngirim|isi|top.?up|dong|nih|ya|sih|deh|aja)\b/gi, '');
+  // Strip connectors
+  d = d.replace(/\b(buat|untuk|ke|di|pada|dari|sama|dengan|dan)\s+/gi, ' ');
+  d = d.replace(/\s+/g, ' ').trim();
+  // Title case
+  d = d.replace(/(?:^|\s)\S/g, c => c.toUpperCase()).trim();
+  return d || raw.replace(/\s+/g,' ').trim()
+              .replace(/(?:^|\s)\S/g,c=>c.toUpperCase()) || 'Tanpa keterangan';
+}
 
-  // Remove "Rp X" and amount words
-  desc = desc.replace(/\brp\s*\d[\d.,]*\b/gi, '');
-  desc = desc.replace(/\d+[.,]?\d*\s*(ribu|rb|ribuan|juta|jt|jtan|jutaan|miliar|milyar|m|mil|perak|rupiah)\b/gi, '');
-  desc = desc.replace(/\b\d{3,}(?:[.,]\d{3})*\b/g, '');
+/* ── Main parser ── */
+function parseVoiceText(raw) {
+  if (!raw || !raw.trim()) return null;
+  const text = raw.trim();
+  const lo   = text.toLowerCase();
 
-  // Remove date patterns
-  desc = desc.replace(/\d{1,2}\s+(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|jan|feb|mar|apr|mei|jun|jul|agu|ags|sep|okt|nov|des)/gi, '');
-  desc = desc.replace(/\b(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\b/gi, '');
+  const amount = extractAmount(lo);
+  if (!amount || amount <= 0) return null;
 
-  // Remove time clues
-  desc = desc.replace(/\b(hari ini|tadi pagi|tadi siang|tadi sore|tadi malam|baru saja|kemarin|kemaren|besok|minggu lalu|bulan lalu|tadi)\b/gi, '');
+  const type        = detectType(lo);
+  const category    = detectCategory(lo);
+  const date        = extractDate(lo);
+  const description = cleanDescription(text);
 
-  // Remove action words (common fillers)
-  desc = desc.replace(/\b(beli|bayar|ngeluarin|keluar|jajan|belanja|sewa|tagihan|biaya|gaji|gajian|dapat|terima|masuk|bonus|dpet|dapet|nerima|tadi|dong|nih|ya|sih|deh|aja|dong|nih|ya)\b/gi, '');
-
-  // Remove leading connectors
-  desc = desc.replace(/^(buat|untuk|ke|di|pada|dari)\s+/gi, '');
-
-  // Collapse whitespace, capitalize
-  desc = desc.replace(/\s+/g, ' ').trim();
-
-  // Capitalize first letter of each word
-  desc = desc.replace(/(?:^|\s)\S/g, c => c.toUpperCase());
-
-  return desc || 'Tanpa keterangan';
+  return { type, amount, category, description, date, raw: text };
 }
 
 /* ── Voice UI ── */
@@ -1244,81 +1443,93 @@ function showVoiceState(state) {
 }
 
 function startVoiceRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
+  voiceProcessed = false;
+  voiceHadError  = false;
+  audioChunks    = [];
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    voiceHadError = true;
     showVoiceState('error');
-    document.getElementById('voiceErrorMsg').textContent = 'Browser tidak mendukung input suara. Gunakan Chrome terbaru.';
+    document.getElementById('voiceErrorMsg').textContent =
+      'Browser tidak mendukung perekaman audio. Gunakan Chrome/Edge terbaru.';
     return;
   }
 
-  voiceProcessed = false;
-  voiceHadError  = false;
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+      // Pick best supported format
+      const mime = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg']
+        .find(t => MediaRecorder.isTypeSupported(t)) || 'audio/webm';
 
-  voiceRecognition = new SpeechRecognition();
-  voiceRecognition.lang            = 'id-ID';
-  voiceRecognition.interimResults  = true;
-  voiceRecognition.continuous      = false;
-  voiceRecognition.maxAlternatives = 1;
+      mediaRecorder = new MediaRecorder(stream, { mimeType: mime });
+      audioChunks   = [];
 
-  voiceRecognition.onresult = (event) => {
-    let interimTxt = '';
-    let finalTxt   = '';
+      mediaRecorder.ondataavailable = e => {
+        if (e.data && e.data.size > 0) audioChunks.push(e.data);
+      };
 
-    for (let i = 0; i < event.results.length; i++) {
-      if (event.results[i].isFinal) {
-        finalTxt   += event.results[i][0].transcript;
-      } else {
-        interimTxt += event.results[i][0].transcript;
-      }
-    }
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop()); // release mic
+        if (voiceProcessed) return; // user cancelled
+        const blob = new Blob(audioChunks, { type: mime });
+        await transcribeAudio(blob, mime);
+      };
 
-    document.getElementById('voiceTranscript').textContent = finalTxt || interimTxt;
+      mediaRecorder.start(250); // slice every 250ms
+      showVoiceState('listening');
 
-    if (finalTxt) {
-      voiceProcessed = true;
-      voiceRecognition.stop();
-      processVoiceText(finalTxt.trim());
-    }
-  };
-
-  voiceRecognition.onerror = (event) => {
-    if (event.error === 'aborted') return; // user stopped — silent
-    voiceHadError = true;
-    console.error('Voice error:', event.error);
-    showVoiceState('error');
-    if (event.error === 'no-speech') {
-      document.getElementById('voiceErrorMsg').textContent = 'Suara tidak terdeteksi. Bicara setelah klik tombol, lalu tunggu proses.';
-    } else if (event.error === 'not-allowed') {
-      document.getElementById('voiceErrorMsg').textContent = 'Izin mikrofon ditolak. Izinkan akses mikrofon di browser lalu coba lagi.';
-    } else if (event.error === 'network') {
-      document.getElementById('voiceErrorMsg').textContent = 'Gagal koneksi ke server pengenalan suara. Cek koneksi internet.';
-    } else {
-      document.getElementById('voiceErrorMsg').textContent = `Error: ${event.error}. Coba lagi.`;
-    }
-  };
-
-  voiceRecognition.onend = () => {
-    if (voiceHadError) return; // error state already showing — don't override
-    if (!voiceProcessed) {
-      // Recognition ended without final result — try partial or back to idle
-      const partial = document.getElementById('voiceTranscript').textContent.trim();
-      if (partial) {
-        voiceProcessed = true;
-        processVoiceText(partial);
-      } else {
-        resetVoiceState();
-      }
-    }
-  };
-
-  voiceRecognition.start();
-  showVoiceState('listening');
+      // Auto-stop after 30 seconds
+      setTimeout(() => {
+        if (mediaRecorder?.state === 'recording') stopVoiceRecognition();
+      }, 30_000);
+    })
+    .catch(err => {
+      voiceHadError = true;
+      showVoiceState('error');
+      document.getElementById('voiceErrorMsg').textContent =
+        err.name === 'NotAllowedError'
+          ? 'Izin mikrofon ditolak. Izinkan akses mikrofon di browser.'
+          : `Gagal akses mikrofon: ${err.message}`;
+    });
 }
 
 function stopVoiceRecognition() {
-  if (voiceRecognition) {
-    try { voiceRecognition.abort(); } catch {}
-    voiceRecognition = null;
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    showVoiceState('processing');
+    document.getElementById('voiceFinalText').textContent = 'Mengirim audio…';
+    mediaRecorder.stop(); // triggers onstop → transcribeAudio
+  }
+  mediaRecorder = null;
+}
+
+async function transcribeAudio(blob, mimeType) {
+  showVoiceState('processing');
+  document.getElementById('voiceFinalText').textContent = 'Mentranskrip dengan Whisper AI…';
+  try {
+    // Convert blob to base64
+    const arrayBuffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary  = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+
+    const resp = await fetch('/api/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio: base64, mimeType: mimeType || 'audio/webm' }),
+    });
+
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.error || `HTTP ${resp.status}`);
+    if (!result.text?.trim()) throw new Error('Transkripsi kosong — coba bicara lebih jelas.');
+
+    document.getElementById('voiceFinalText').textContent = `"${result.text}"`;
+    voiceProcessed = true;
+    processVoiceText(result.text.trim());
+  } catch (err) {
+    voiceHadError = true;
+    showVoiceState('error');
+    document.getElementById('voiceErrorMsg').textContent = err.message;
   }
 }
 
@@ -2485,8 +2696,95 @@ async function saveBudgets() {
   toast('Anggaran disimpan');
 }
 
+/* ===== AUTH + DRIVE ===== */
+let currentUser = null;
+
+async function checkAuth() {
+  try {
+    const res = await fetch('/auth/me');
+    currentUser = res.ok ? await res.json() : null;
+  } catch { currentUser = null; }
+}
+
+function showLoginOverlay(show) {
+  const el = document.getElementById('loginOverlay');
+  if (!el) return;
+  el.style.display = show ? 'flex' : 'none';
+
+  // Check URL params for setup/error hints
+  const params = new URLSearchParams(location.search);
+  const note   = document.getElementById('loginNote');
+  if (note) {
+    if (params.has('setup'))      note.textContent = '⚠️ Google OAuth belum dikonfigurasi. Isi GOOGLE_CLIENT_ID dan GOOGLE_CLIENT_SECRET di file .env';
+    else if (params.has('auth_error')) note.textContent = '❌ Login gagal. Coba lagi.';
+    else note.textContent = '';
+  }
+}
+
+function updateUserUI() {
+  if (!currentUser) return;
+  const nameEl    = document.getElementById('userName');
+  const emailEl   = document.getElementById('userEmail');
+  const photoEl   = document.getElementById('userPhoto');
+  const fallbackEl = document.getElementById('userAvatarFallback');
+  if (nameEl)  nameEl.textContent  = currentUser.name  || 'Pengguna';
+  if (emailEl) emailEl.textContent = currentUser.email || '';
+  if (photoEl && currentUser.picture) {
+    photoEl.src = currentUser.picture;
+    photoEl.style.display = 'block';
+    if (fallbackEl) fallbackEl.style.display = 'none';
+  }
+}
+
+async function driveBackup() {
+  const btn = document.getElementById('driveBackupBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/drive/backup', { method:'POST' });
+    const data = await res.json();
+    if (data.ok) toast('✅ Backup ke Google Drive berhasil!', 'success');
+    else toast(`❌ Backup gagal: ${data.error}`, 'error');
+  } catch { toast('❌ Backup gagal — cek koneksi', 'error'); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+async function driveRestore() {
+  if (!confirm('Restore data dari Google Drive? Data lokal saat ini akan diganti.')) return;
+  const btn = document.getElementById('driveRestoreBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res  = await fetch('/api/drive/restore');
+    const data = await res.json();
+    if (!data.found) { toast('Tidak ada backup di Google Drive', 'error'); return; }
+    const { transactions:t, budgets:b, goals:g, accounts:a, customCats:cc, debts:d } = data.data || {};
+    if (Array.isArray(t)) {
+      transactions = t; budgets = b||{}; goals = g||[];
+      accounts = (a?.length) ? a : DEFAULT_ACCOUNTS;
+      customCats = cc||{}; debts = d||[];
+      rebuildCats();
+      await saveData();
+      refresh();
+      toast(`✅ Restore berhasil — ${t.length} transaksi dipulihkan`, 'success');
+    }
+  } catch { toast('❌ Restore gagal', 'error'); }
+  finally { if (btn) btn.disabled = false; }
+}
+
 /* ===== INIT ===== */
 async function init() {
+  /* Auth check */
+  await checkAuth();
+
+  /* Show login overlay if not authenticated */
+  if (!currentUser) {
+    showLoginOverlay(true);
+    return; // stop here — app not initialized until logged in
+  }
+  showLoginOverlay(false);
+  updateUserUI();
+
+  /* Auth-aware 401 handling in loadData */
+
   /* Tema */
   const savedTheme = localStorage.getItem(LS_THEME) || 'dark';
   applyTheme(savedTheme);
@@ -2626,7 +2924,9 @@ async function init() {
   document.getElementById('voiceStartBtn').addEventListener('click', startVoiceRecognition);
   document.getElementById('voiceStopBtn').addEventListener('click', () => {
     voiceProcessed = true;
-    stopVoiceRecognition();
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop(); mediaRecorder = null;
+    }
     resetVoiceState();
   });
   document.getElementById('voiceConfirmBtn').addEventListener('click', confirmVoiceTransaction);
@@ -2683,6 +2983,13 @@ async function init() {
   });
   document.querySelectorAll('.export-preset-btn').forEach(btn => {
     btn.addEventListener('click', () => applyExportPreset(btn.dataset.preset));
+  });
+
+  /* Drive backup / restore / logout */
+  document.getElementById('driveBackupBtn')?.addEventListener('click', driveBackup);
+  document.getElementById('driveRestoreBtn')?.addEventListener('click', driveRestore);
+  document.getElementById('logoutBtn')?.addEventListener('click', () => {
+    if (confirm('Keluar dari FinanceFlow?')) location.href = '/auth/logout';
   });
 
   /* Toggle tema */
