@@ -28,12 +28,19 @@ const SCOPES = [
 ];
 
 /* ── Middleware ── */
+app.set('trust proxy', 1); // required for Hostinger / reverse proxy (correct IP + secure cookies)
 app.use(express.json({ limit: '50mb' }));
+
+const isProd = process.env.NODE_ENV === 'production' || !!process.env.REDIRECT_URI?.startsWith('https');
 app.use(session({
   secret: process.env.SESSION_SECRET || 'financeflow-dev-secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false, maxAge: 7 * 24 * 60 * 60 * 1000 },
+  cookie: {
+    secure: isProd,       // true on HTTPS (Hostinger), false on localhost
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
 }));
 
 /* Static files (no auto-index so we control / route) */

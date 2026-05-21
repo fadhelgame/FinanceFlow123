@@ -2777,6 +2777,7 @@ async function init() {
 
   /* Show login overlay if not authenticated */
   if (!currentUser) {
+    showLoading(false);   // hide loading spinner
     showLoginOverlay(true);
     return; // stop here — app not initialized until logged in
   }
