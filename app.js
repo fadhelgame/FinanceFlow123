@@ -1016,6 +1016,8 @@ async function doDeposit() {
 /* ===== VOICE INPUT ===== */
 let voiceRecognition = null;
 let voiceParsedData  = null;
+let voiceProcessed   = false;
+let voiceHadError    = false;
 
 /* ── NLP Parser ── */
 function parseVoiceText(raw) {
@@ -1211,9 +1213,12 @@ function cleanDescription(text, amount) {
 function openVoiceModal() {
   resetVoiceState();
   document.getElementById('voiceModalOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('voiceTextInput')?.focus(), 120);
 }
 
 function closeVoiceModal() {
+  voiceProcessed = true; // prevent any pending onend from firing
+  voiceHadError  = false;
   stopVoiceRecognition();
   resetVoiceState();
   document.getElementById('voiceModalOverlay').classList.remove('open');
@@ -1227,7 +1232,9 @@ function resetVoiceState() {
   document.getElementById('voiceStateError').style.display      = 'none';
   document.getElementById('voiceTranscript').textContent        = '';
   document.getElementById('voiceFinalText').textContent         = '';
-  voiceParsedData = null;
+  voiceParsedData  = null;
+  voiceHadError    = false;
+  // Keep text input value so user can edit & retry
 }
 
 function showVoiceState(state) {
@@ -1237,7 +1244,6 @@ function showVoiceState(state) {
 }
 
 function startVoiceRecognition() {
-  // Check browser support
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     showVoiceState('error');
@@ -1245,40 +1251,64 @@ function startVoiceRecognition() {
     return;
   }
 
+  voiceProcessed = false;
+  voiceHadError  = false;
+
   voiceRecognition = new SpeechRecognition();
-  voiceRecognition.lang           = 'id-ID';
+  voiceRecognition.lang            = 'id-ID';
   voiceRecognition.interimResults  = true;
-  voiceRecognition.continuous     = false;
+  voiceRecognition.continuous      = false;
   voiceRecognition.maxAlternatives = 1;
 
   voiceRecognition.onresult = (event) => {
-    const transcript = Array.from(event.results)
-      .map(r => r[0].transcript)
-      .join('');
+    let interimTxt = '';
+    let finalTxt   = '';
 
-    document.getElementById('voiceTranscript').textContent = transcript;
+    for (let i = 0; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        finalTxt   += event.results[i][0].transcript;
+      } else {
+        interimTxt += event.results[i][0].transcript;
+      }
+    }
 
-    if (event.results[0].isFinal) {
-      // Stop listening and process
+    document.getElementById('voiceTranscript').textContent = finalTxt || interimTxt;
+
+    if (finalTxt) {
+      voiceProcessed = true;
       voiceRecognition.stop();
-      processVoiceText(transcript);
+      processVoiceText(finalTxt.trim());
     }
   };
 
   voiceRecognition.onerror = (event) => {
+    if (event.error === 'aborted') return; // user stopped — silent
+    voiceHadError = true;
     console.error('Voice error:', event.error);
     showVoiceState('error');
     if (event.error === 'no-speech') {
-      document.getElementById('voiceErrorMsg').textContent = 'Suara tidak terdeteksi. Coba lagi dan bicara lebih jelas.';
+      document.getElementById('voiceErrorMsg').textContent = 'Suara tidak terdeteksi. Bicara setelah klik tombol, lalu tunggu proses.';
     } else if (event.error === 'not-allowed') {
-      document.getElementById('voiceErrorMsg').textContent = 'Izin mikrofon ditolak. Izinkan akses mikrofon di browser.';
+      document.getElementById('voiceErrorMsg').textContent = 'Izin mikrofon ditolak. Izinkan akses mikrofon di browser lalu coba lagi.';
+    } else if (event.error === 'network') {
+      document.getElementById('voiceErrorMsg').textContent = 'Gagal koneksi ke server pengenalan suara. Cek koneksi internet.';
     } else {
       document.getElementById('voiceErrorMsg').textContent = `Error: ${event.error}. Coba lagi.`;
     }
   };
 
   voiceRecognition.onend = () => {
-    // Only reset if we're still in listening state (not processing)
+    if (voiceHadError) return; // error state already showing — don't override
+    if (!voiceProcessed) {
+      // Recognition ended without final result — try partial or back to idle
+      const partial = document.getElementById('voiceTranscript').textContent.trim();
+      if (partial) {
+        voiceProcessed = true;
+        processVoiceText(partial);
+      } else {
+        resetVoiceState();
+      }
+    }
   };
 
   voiceRecognition.start();
@@ -2566,21 +2596,46 @@ async function init() {
   /* Print */
   document.getElementById('printBtn').addEventListener('click', printReport);
 
-  /* Voice Input */
+  /* Voice / Catat Cepat */
   document.getElementById('voiceBtn').addEventListener('click', openVoiceModal);
   document.getElementById('voiceModalClose').addEventListener('click', closeVoiceModal);
   document.getElementById('voiceModalOverlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeVoiceModal();
   });
+
+  // Text input submit
+  function submitVoiceText() {
+    const val = document.getElementById('voiceTextInput').value.trim();
+    if (!val) { document.getElementById('voiceTextInput').focus(); return; }
+    processVoiceText(val);
+  }
+  document.getElementById('voiceTextSubmitBtn').addEventListener('click', submitVoiceText);
+  document.getElementById('voiceTextInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); submitVoiceText(); }
+  });
+
+  // Quick chips
+  document.querySelectorAll('.voice-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.getElementById('voiceTextInput').value = chip.dataset.text;
+      document.getElementById('voiceTextInput').focus();
+    });
+  });
+
+  // Mic (secondary)
   document.getElementById('voiceStartBtn').addEventListener('click', startVoiceRecognition);
   document.getElementById('voiceStopBtn').addEventListener('click', () => {
-    voiceRecognition?.stop();
+    voiceProcessed = true;
+    stopVoiceRecognition();
     resetVoiceState();
   });
   document.getElementById('voiceConfirmBtn').addEventListener('click', confirmVoiceTransaction);
   document.getElementById('voiceEditBtn').addEventListener('click', openVoiceAsEdit);
   document.getElementById('voiceRetryBtn').addEventListener('click', resetVoiceState);
-  document.getElementById('voiceRetryErrBtn').addEventListener('click', resetVoiceState);
+  document.getElementById('voiceRetryErrBtn').addEventListener('click', () => {
+    resetVoiceState();
+    setTimeout(() => document.getElementById('voiceTextInput')?.focus(), 50);
+  });
 
   /* Import CSV */
   document.getElementById('importHeaderBtn').addEventListener('click', openImportModal);

@@ -252,8 +252,20 @@
       </div>
       <div class="section-card">
         <div class="section-header">
-          <h3>Semua Transaksi</h3>
-          <span class="tx-count-badge" id="txCount">0 transaksi</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <h3>Semua Transaksi</h3>
+            <span class="tx-count-badge" id="txCount">0 transaksi</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-outline btn-sm" id="importHeaderBtn" title="Import CSV">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 9v12m0-12l-4 4m4-4l4 4M2 7l.621-2.485A2 2 0 014.561 3h14.878a2 2 0 011.94 1.515L22 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Import
+            </button>
+            <button class="btn-outline btn-sm" id="exportHeaderBtn" title="Export Excel">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 15V3m0 12l-4-4m4 4l4-4M2 17l.621 2.485A2 2 0 004.561 21h14.878a2 2 0 001.94-1.515L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Export
+            </button>
+          </div>
         </div>
         <div class="transaction-list" id="allList"></div>
         <div class="empty-state" id="emptyState" style="display:none">
@@ -328,6 +340,13 @@
 
     <!-- Laporan Page -->
     <div class="page" id="reportsPage">
+      <div class="page-tools-bar">
+        <div></div>
+        <button class="btn-outline btn-sm" id="printBtn" title="Cetak / PDF">
+          <svg viewBox="0 0 24 24" fill="none" width="14" height="14"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6v-8z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Cetak / PDF
+        </button>
+      </div>
       <div class="stats-grid reports-stats" id="reportsStats"></div>
       <div class="charts-grid">
         <div class="chart-card main-chart-card">
@@ -844,9 +863,9 @@
 
 <!-- Modal Input Suara -->
 <div class="modal-overlay" id="voiceModalOverlay">
-  <div class="modal modal-sm voice-modal">
+  <div class="modal voice-modal">
     <div class="modal-header">
-      <h2 id="voiceModalTitle">🎤 Input Suara</h2>
+      <h2 id="voiceModalTitle">⚡ Catat Cepat</h2>
       <button class="modal-close" id="voiceModalClose">
         <svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
@@ -854,16 +873,28 @@
 
     <!-- State: idle -->
     <div id="voiceStateIdle" class="voice-state">
-      <p class="voice-hint">Bicara untuk mencatat transaksi otomatis</p>
-      <p class="voice-examples">
-        Contoh:<br>
-        <code>"Beli minuman Chagee 15 ribu"</code><br>
-        <code>"Bayar listrik 450 ribu kemarin"</code><br>
-        <code>"Gajian 8 setengah juta"</code>
-      </p>
-      <button class="btn-primary voice-start-btn" id="voiceStartBtn">
-        <svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" stroke="currentColor" stroke-width="1.8"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        <span>Mulai Bicara</span>
+      <div class="voice-input-row">
+        <input type="text" id="voiceTextInput" class="voice-text-input"
+               placeholder='cth: "beli kopi 15rb" atau "gajian 5 juta"'
+               autocomplete="off" autocorrect="off" spellcheck="false">
+        <button class="btn-primary voice-submit-btn" id="voiceTextSubmitBtn" title="Proses (Enter)">
+          <svg viewBox="0 0 24 24" fill="none" width="17" height="17"><path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="voice-chips">
+        <span class="voice-chip" data-text="Beli kopi 15 ribu">☕ kopi 15rb</span>
+        <span class="voice-chip" data-text="Gajian 5 juta">💼 gajian 5jt</span>
+        <span class="voice-chip" data-text="Bayar listrik 450 ribu kemarin">⚡ listrik 450rb</span>
+        <span class="voice-chip" data-text="Makan siang 35 ribu">🍕 makan 35rb</span>
+        <span class="voice-chip" data-text="Naik ojek 25 ribu">🛵 ojek 25rb</span>
+        <span class="voice-chip" data-text="Belanja 200 ribu">🛍 belanja 200rb</span>
+      </div>
+      <div class="voice-or-divider">
+        <span></span><small>atau gunakan mikrofon (butuh internet)</small><span></span>
+      </div>
+      <button class="btn-outline voice-start-btn" id="voiceStartBtn">
+        <svg viewBox="0 0 24 24" fill="none" width="15" height="15"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" stroke="currentColor" stroke-width="1.8"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Gunakan Mikrofon
       </button>
     </div>
 
@@ -922,18 +953,6 @@
   <button class="fab-nav-btn voice-btn" id="voiceBtn" title="Input Suara" data-tooltip="Bicara untuk mencatat transaksi otomatis">
     <svg viewBox="0 0 24 24" fill="none" width="17" height="17"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" stroke="currentColor" stroke-width="1.8"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
     <span>Suara</span>
-  </button>
-  <button class="fab-nav-btn" id="printBtn" title="Cetak / PDF" data-tooltip="Cetak laporan keuangan">
-    <svg viewBox="0 0 24 24" fill="none" width="17" height="17"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6v-8z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <span>Cetak</span>
-  </button>
-  <button class="fab-nav-btn" id="importHeaderBtn" title="Import CSV" data-tooltip="Import transaksi dari file CSV">
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 9v12m0-12l-4 4m4-4l4 4M2 7l.621-2.485A2 2 0 014.561 3h14.878a2 2 0 011.94 1.515L22 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <span>Import</span>
-  </button>
-  <button class="fab-nav-btn" id="exportHeaderBtn" title="Export ke Excel" data-tooltip="Export transaksi ke file Excel">
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 15V3m0 12l-4-4m4 4l4-4M2 17l.621 2.485A2 2 0 004.561 21h14.878a2 2 0 001.94-1.515L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <span>Export</span>
   </button>
   <div class="fab-nav-divider"></div>
   <button class="fab-nav-add pulse-cta" id="btnAdd" data-tooltip="Catat pemasukan atau pengeluaran baru (Ctrl+K)">
